@@ -1,0 +1,175 @@
+fmod SOUP{X :: TRIV} is
+  sort Soup{X} .
+  subsort X$Elt < Soup{X} .
+  op empty : -> Soup{X} [ctor] .
+  op __ : Soup{X} Soup{X} -> Soup{X} [ctor assoc comm id: empty] .
+endfm
+
+fmod PROC-STATE is
+  sort ProcState .
+  sorts Leader Normal Initiator Passive .
+  subsorts Leader Normal Initiator Passive < ProcState .
+  op leader : -> Leader [ctor] .
+  op normal : -> Normal [ctor] .
+  op initiator : -> Initiator [ctor] .
+  op passive : -> Passive [ctor] .
+endfm
+
+fmod PROCESS is
+  pr NAT .
+  pr PROC-STATE .
+  sort Process .
+  --- LeaderId, LeftId, RightId 
+  op process : Leader Nat Nat Nat -> Process [ctor] .
+  op process : Normal Nat Nat Nat -> Process [ctor] .
+  op process : Initiator Nat Nat Nat -> Process [ctor] .
+  op process : Passive Nat Nat Nat -> Process [ctor] .
+endfm
+
+fmod MESSAGE-TYPE is
+  pr NAT .
+  sort MessageType .
+  sorts Election Elected None .
+  subsorts Election Elected None < MessageType .
+  op election : Nat -> Election [ctor] .
+  op elected : Nat -> Elected [ctor] .
+  op none : -> None [ctor] .
+endfm
+
+fmod MESSAGE is
+  pr NAT .
+  pr MESSAGE-TYPE .
+  sort Message .
+  --- MessageType, FromId, ToId
+  op message : Election Nat Nat -> Message [ctor] .
+  op message : Elected Nat Nat -> Message [ctor] .
+endfm
+
+view Message from TRIV to MESSAGE is
+  sort Elt to Message .
+endv
+
+fmod OCOM is
+  pr NAT .
+  pr PROCESS .
+  pr SOUP{Message} .
+  sort OComp .
+  op proc[_]:_ : Nat Process -> OComp [ctor] .
+  op rcvLeft[_]:_ : Nat MessageType -> OComp [ctor] .
+  op rcvRight[_]:_ : Nat MessageType -> OComp [ctor] .
+  op network:_ : Soup{Message} -> OComp [ctor] .
+endfm
+
+view OComp from TRIV to OCOM is
+  sort Elt to OComp .
+endv
+
+fmod INIT-STATE is
+  pr SOUP{OComp} .
+  pr OCOM .
+  sort FState .
+  op {_} : Soup{OComp} -> FState [ctor] .
+  op init : -> FState .
+  eq init = {
+    (proc[0]: process(normal, 0, 4, 1)) (proc[1]: process(normal, 1, 0, 2)) (proc[2]: process(normal, 2, 1, 3)) (proc[3]: process(normal, 3, 2, 4)) (proc[4]: process(normal, 4, 3, 0))
+    (rcvLeft[0]: none) (rcvLeft[1]: none) (rcvLeft[2]: none) (rcvLeft[3]: none) (rcvLeft[4]: none)
+    (rcvRight[0]: none) (rcvRight[1]: none) (rcvRight[2]: none) (rcvRight[3]: none) (rcvRight[4]: none)
+    (network: empty)
+  } .
+  --- 3 <-> 1 <-> 4 <-> 2 <-> 0
+  op init-random : -> FState .
+  eq init-random = {
+    (proc[0]: process(normal, 0, 2, 3)) (proc[1]: process(normal, 1, 3, 4)) (proc[2]: process(normal, 2, 4, 0)) (proc[3]: process(normal, 3, 0, 1)) (proc[4]: process(normal, 4, 1, 2))
+    (rcvLeft[0]: none) (rcvLeft[1]: none) (rcvLeft[2]: none) (rcvLeft[3]: none) (rcvLeft[4]: none)
+    (rcvRight[0]: none) (rcvRight[1]: none) (rcvRight[2]: none) (rcvRight[3]: none) (rcvRight[4]: none)
+    (network: empty)
+  } .
+endfm
+
+mod FRANKLIN is
+  pr INIT-STATE .
+
+  vars ID ID0 ID1 LID EID ID_L ID_R : Nat .
+  vars LID0 LID1 ID0_L ID0_R ID1_L ID1_R : Nat .
+  var NW : Soup{Message} .
+  var S : Soup{OComp} .
+
+  rl [start-election] :
+    {(proc[ID]: process(normal, LID, ID_L, ID_R)) (rcvLeft[ID]: none) (rcvRight[ID]: none) (network: NW) S} =>
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvLeft[ID]: none) (rcvRight[ID]: none) (network: (message(election(ID), ID, ID_L) message(election(ID), ID, ID_R) NW)) S} .
+
+  rl [initiator-rcv-left] :
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvLeft[ID]: none) (network: (message(election(EID), ID_L, ID) NW)) S} =>
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvLeft[ID]: election(EID)) (network: NW) S} .
+
+  rl [initiator-rcv-right] :
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvRight[ID]: none) (network: (message(election(EID), ID_R, ID) NW)) S} =>
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvRight[ID]: election(EID)) (network: NW) S} .
+ 
+  crl [initiator-become-leader] :
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvLeft[ID]: election(ID0)) (rcvRight[ID]: election(ID1)) (network: NW) S} =>
+    {(proc[ID]: process(leader, ID, ID_L, ID_R)) (rcvLeft[ID]: none) (rcvRight[ID]: none) (network: (message(elected(ID), ID, ID_R) NW)) S}
+    if (ID0 >= ID1 and ID == ID0) or (ID0 < ID1 and ID == ID1) .
+
+  crl [initiator-become-passive] :
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvLeft[ID]: election(ID0)) (rcvRight[ID]: election(ID1)) (network: NW) S} =>
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (rcvLeft[ID]: none) (rcvRight[ID]: none) (network: NW) S}
+    if (ID0 >= ID1 and ID < ID0) or (ID0 < ID1 and ID < ID1) .
+
+  crl [initiator-repeat-election] :
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvLeft[ID]: election(ID0)) (rcvRight[ID]: election(ID1)) (network: NW) S} =>
+    {(proc[ID]: process(initiator, LID, ID_L, ID_R)) (rcvLeft[ID]: none) (rcvRight[ID]: none) (network: (message(election(ID), ID, ID_L) message(election(ID), ID, ID_R) NW)) S}
+    if (ID0 >= ID1 and ID > ID0) or (ID0 < ID1 and ID > ID1) .
+
+  rl [normal-rcv-left] :
+    {(proc[ID]: process(normal, LID, ID_L, ID_R)) (network: (message(election(EID), ID_L, ID) NW)) S} =>
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (network: (message(election(EID), ID, ID_R) NW)) S} .
+
+  rl [normal-rcv-right] :
+    {(proc[ID]: process(normal, LID, ID_L, ID_R)) (network: (message(election(EID), ID_R, ID) NW)) S} =>
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (network: (message(election(EID), ID, ID_L) NW)) S} .
+
+  rl [passive-rcv-left] :
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (network: (message(election(EID), ID_L, ID) NW)) S} =>
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (network: (message(election(EID), ID, ID_R) NW)) S} .
+
+  rl [passive-rcv-right] :
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (network: (message(election(EID), ID_R, ID) NW)) S} =>
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (network: (message(election(EID), ID, ID_L) NW)) S} .
+
+  rl [passive-execution] :
+    {(proc[ID]: process(passive, LID, ID_L, ID_R)) (network: (message(elected(EID), ID_L, ID) NW)) S} =>
+    {(proc[ID]: process(passive, EID, ID_L, ID_R)) (network: (message(elected(EID), ID, ID_R) NW)) S} .
+
+  rl [leader-execution] :
+    {(proc[ID]: process(leader, LID, ID_L, ID_R)) (network: (message(elected(EID), ID_L, ID) NW)) S} =>
+    {(proc[ID]: process(leader, LID, ID_L, ID_R)) (network: NW) S} .
+endm
+
+in model-checker .
+
+mod FRANKLIN-PREDS is
+  pr FRANKLIN .
+  inc SATISFACTION .
+  subsort FState < State .
+  ops leader : Nat -> Prop .
+  vars ID LID ID_L ID_R : Nat .
+  var S : Soup{OComp} .
+  var PROP : Prop .
+  eq {(proc[ID]: process(leader, LID, ID_L, ID_R)) S} |= leader(ID) = true .
+  eq {S} |= PROP = false [owise] .
+endm
+
+mod FRANKLIN-CHECK is
+  inc FRANKLIN-PREDS .
+  inc MODEL-CHECKER .
+  inc LTL-SIMPLIFIER .
+  op leaderLiveness : -> Formula .
+  eq leaderLiveness = <> (leader(0) \/ leader(1) \/ leader(2) \/ leader(3) \/ leader(4)) .
+endm
+
+search [1] in FRANKLIN : init =>* {(proc[ID0]: process(leader, LID0, ID0_L, ID0_R)) (proc[ID1]: process(leader, LID1, ID1_L, ID1_R)) S} .
+search [1] in FRANKLIN : init-random =>* {(proc[ID0]: process(leader, LID0, ID0_L, ID0_R)) (proc[ID1]: process(leader, LID1, ID1_L, ID1_R)) S} .
+
+red in FRANKLIN-CHECK : modelCheck(init, leaderLiveness) .
+red in FRANKLIN-CHECK : modelCheck(init-random, leaderLiveness) .

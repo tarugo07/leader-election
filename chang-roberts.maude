@@ -1,0 +1,191 @@
+fmod SOUP{X :: TRIV} is
+  sort Soup{X} .
+  subsort X$Elt < Soup{X} .
+  op empty : -> Soup{X} [ctor] .
+  op __ : Soup{X} Soup{X} -> Soup{X} [ctor assoc comm id: empty] .
+endfm
+
+fmod PROC-STATE is
+  sort ProcState .
+  sorts Normal Cand Lost Elected Leader .
+  subsorts Normal Cand Lost Elected Leader < ProcState .
+  op normal : -> Normal [ctor] .
+  op cand : -> Cand [ctor] .
+  op lost : -> Lost [ctor] .
+  op elected : -> Elected [ctor] .
+  op leader : -> Leader [ctor] .
+endfm
+
+fmod PROCESS is
+  pr NAT .
+  pr PROC-STATE .
+  sort Process .
+  op process : Normal Nat Nat -> Process [ctor] .
+  op process : Cand Nat Nat -> Process [ctor] .
+  op process : Lost Nat Nat -> Process [ctor] .
+  op process : Elected Nat Nat -> Process [ctor] .
+  op process : Leader Nat Nat -> Process [ctor] .
+endfm
+
+fmod MESSAGE-TYPE is
+  sort MessageType .
+  sorts Candidate Coordinator .
+  subsorts Candidate Coordinator < MessageType .
+  op candidate : -> Candidate [ctor] .
+  op coordinator : -> Coordinator [ctor] .
+endfm
+
+fmod MESSAGE is
+  pr NAT .
+  pr MESSAGE-TYPE .
+  sort Message .
+  op message : Nat Candidate Nat -> Message [ctor] .
+  op message : Nat Coordinator Nat -> Message [ctor] .
+endfm
+
+view Message from TRIV to MESSAGE is
+  sort Elt to Message .
+endv
+
+fmod OCOM is
+  pr NAT .
+  pr PROCESS .
+  pr SOUP{Message} .
+  sort OComp .
+  op proc[_]:_ : Nat Process -> OComp [ctor] .
+  op rcvCandidateMsgCnt[_]:_ : Nat Nat -> OComp [ctor] .
+  op rcvCoordinatorMsgCnt[_]:_ : Nat Nat -> OComp [ctor] .
+  op network:_ : Soup{Message} -> OComp [ctor] .
+endfm
+
+view OComp from TRIV to OCOM is
+  sort Elt to OComp .
+endv
+
+fmod INIT-STATE is
+  pr SOUP{OComp} .
+  pr OCOM .
+  sort CRState .
+  op {_} : Soup{OComp} -> CRState [ctor] .
+  op init : -> CRState .
+  eq init = {
+    (proc[0]: process(normal, 0, 1)) (proc[1]: process(normal, 1, 2)) (proc[2]: process(normal, 2, 3)) (proc[3]: process(normal, 3, 4)) (proc[4]: process(normal, 4, 0))
+    (rcvCandidateMsgCnt[0]: 0) (rcvCandidateMsgCnt[1]: 0) (rcvCandidateMsgCnt[2]: 0) (rcvCandidateMsgCnt[3]: 0) (rcvCandidateMsgCnt[4]: 0)
+    (rcvCoordinatorMsgCnt[0]: 0) (rcvCoordinatorMsgCnt[1]: 0) (rcvCoordinatorMsgCnt[2]: 0) (rcvCoordinatorMsgCnt[3]: 0) (rcvCoordinatorMsgCnt[4]: 0)
+    (network: empty)
+  } .
+  --- 3 -> 1 -> 4 -> 2 -> 0
+  op init-random : -> CRState .
+  eq init-random = {
+    (proc[0]: process(normal, 0, 3)) (proc[1]: process(normal, 1, 4)) (proc[2]: process(normal, 2, 0)) (proc[3]: process(normal, 3, 1)) (proc[4]: process(normal, 4, 2))
+    (rcvCandidateMsgCnt[0]: 0) (rcvCandidateMsgCnt[1]: 0) (rcvCandidateMsgCnt[2]: 0) (rcvCandidateMsgCnt[3]: 0) (rcvCandidateMsgCnt[4]: 0)
+    (rcvCoordinatorMsgCnt[0]: 0) (rcvCoordinatorMsgCnt[1]: 0) (rcvCoordinatorMsgCnt[2]: 0) (rcvCoordinatorMsgCnt[3]: 0) (rcvCoordinatorMsgCnt[4]: 0)
+    (network: empty)
+  } .
+endfm
+
+mod CHANG-ROBERTS is
+  pr INIT-STATE .
+
+  vars ID LID NID CID EID : Nat .
+  vars ID0 ID1 LID0 LID1 NID0 NID1 : Nat .
+  var RC RC0 RC1 : Nat . 
+  var NW : Soup{Message} .
+  var S : Soup{OComp} .
+
+  rl [start-election] :
+    {(proc[ID]: process(normal, LID, NID)) (rcvCandidateMsgCnt[ID]: RC) (network: NW) S} =>
+    {(proc[ID]: process(cand, LID, NID)) (rcvCandidateMsgCnt[ID]: 0) (network: (message(NID, candidate, ID) NW)) S} .
+
+  rl [normal-execution] :
+    {(proc[ID]: process(normal, LID, NID)) (network: (message(ID, candidate, CID) NW)) S} =>
+    {(proc[ID]: process(lost, LID, NID)) (network: (message(NID, candidate, CID) NW)) S} .
+
+  crl [cand-execution-ignore] :
+    {(proc[ID]: process(cand, LID, NID)) (network: (message(ID, candidate, CID) NW)) S} =>
+    {(proc[ID]: process(cand, LID, NID)) (network: NW) S}
+    if ID < CID .
+
+  crl [cand-execution-lost] :
+    {(proc[ID]: process(cand, LID, NID)) (network: (message(ID, candidate, CID) NW)) S} =>
+    {(proc[ID]: process(lost, LID, NID)) (network: (message(NID, candidate, CID) NW)) S}
+    if ID > CID .
+
+  crl [cand-execution-elected] :
+    {(proc[ID]: process(cand, LID, NID)) (rcvCandidateMsgCnt[ID]: RC0) (rcvCoordinatorMsgCnt[ID]: RC1) (network: (message(ID, candidate, CID) NW)) S} =>
+    {(proc[ID]: process(elected, LID, NID)) (rcvCandidateMsgCnt[ID]: RC0 + 1) (rcvCoordinatorMsgCnt[ID]: 0) (network: (message(NID, coordinator, ID) NW)) S}
+    if ID == CID .
+
+  crl [elected-execution] :
+    {(proc[ID]: process(elected, LID, NID)) (rcvCoordinatorMsgCnt[ID]: RC) (network: (message(ID, coordinator, EID) NW)) S} =>
+    {(proc[ID]: process(leader, EID, NID)) (rcvCoordinatorMsgCnt[ID]: RC + 1) (network: NW) S}
+    if ID == EID .
+
+  rl [lost-recieve-cand-msg] :
+    {(proc[ID]: process(lost, LID, NID)) (network: (message(ID, candidate, CID) NW)) S} =>
+    {(proc[ID]: process(lost, LID, NID)) (network: (message(NID, candidate, CID) NW)) S} .
+
+  rl [lost-recieve-coord-msg] :
+    {(proc[ID]: process(lost, LID, NID)) (network: (message(ID, coordinator, EID) NW)) S} =>
+    {(proc[ID]: process(lost, EID, NID)) (network: (message(NID, coordinator, EID) NW)) S} .
+
+  rl [leader-recieve-cand-msg] :
+    {(proc[ID]: process(leader, LID, NID)) (network: (message(ID, candidate, CID) NW)) S} =>
+    {(proc[ID]: process(leader, LID, NID)) (network: (message(NID, candidate, CID) NW)) S} .
+endm
+
+in model-checker .
+
+mod CR-PREDS is
+  pr CHANG-ROBERTS .
+  inc SATISFACTION .
+  subsort CRState < State .
+  ops cand elected leader : Nat -> Prop .
+  op rcvMyCandidateMsg : Nat -> Prop .
+  op rcvMyCoordinatorMsg : Nat -> Prop .
+  vars ID LID NID : Nat .
+  var S : Soup{OComp} .
+  var PROP : Prop .
+  eq {(proc[ID]: process(cand, LID, NID)) S} |= cand(ID) = true .
+  eq {(proc[ID]: process(elected, LID, NID)) S} |= elected(ID) = true .
+  eq {(proc[ID]: process(leader, LID, NID)) S} |= leader(ID) = true .
+  eq {(rcvCandidateMsgCnt[ID]: 1) S} |= rcvMyCandidateMsg(ID) = true .
+  eq {(rcvCoordinatorMsgCnt[ID]: 1) S} |= rcvMyCoordinatorMsg(ID) = true .
+  eq {S} |= PROP = false [owise] .
+endm
+
+mod CR-CHECK is
+  inc CR-PREDS .
+  inc MODEL-CHECKER .
+  inc LTL-SIMPLIFIER .
+  op leaderLiveness : -> Formula .
+  op beLeader : -> Formula .
+  op candidateMsgCircleRing : -> Formula .
+  op coordinatorMsgCircleRing : -> Formula .
+  eq leaderLiveness = <> (leader(0) \/ leader(1) \/ leader(2) \/ leader(3) \/ leader(4)) .
+  eq beLeader =
+    (cand(0) |-> leader(0)) \/ (cand(1) |-> leader(1)) \/
+    (cand(2) |-> leader(2)) \/ (cand(3) |-> leader(3)) \/
+    (cand(4) |-> leader(4)) .
+  eq candidateMsgCircleRing =
+    (cand(0) |-> rcvMyCandidateMsg(0)) \/ (cand(1) |-> rcvMyCandidateMsg(1)) \/ (cand(2) |-> rcvMyCandidateMsg(2)) \/
+    (cand(3) |-> rcvMyCandidateMsg(3)) \/ (cand(4) |-> rcvMyCandidateMsg(4)) .
+  eq coordinatorMsgCircleRing =
+    ((cand(0) |-> elected(0)) /\ (elected(0) |-> rcvMyCoordinatorMsg(0))) \/
+    ((cand(1) |-> elected(1)) /\ (elected(1) |-> rcvMyCoordinatorMsg(1))) \/
+    ((cand(2) |-> elected(2)) /\ (elected(2) |-> rcvMyCoordinatorMsg(2))) \/
+    ((cand(3) |-> elected(3)) /\ (elected(3) |-> rcvMyCoordinatorMsg(3))) \/
+    ((cand(4) |-> elected(4)) /\ (elected(4) |-> rcvMyCoordinatorMsg(4))) .
+endm
+
+search [1] in CHANG-ROBERTS : init =>* {(proc[ID0]: process(leader, LID0, NID0)) (proc[ID1]: process(leader, LID1, NID1)) S} .
+search [1] in CHANG-ROBERTS : init-random =>* {(proc[ID0]: process(leader, LID0, NID0)) (proc[ID1]: process(leader, LID1, NID1)) S} .
+
+red in CR-CHECK : modelCheck(init, leaderLiveness) .
+red in CR-CHECK : modelCheck(init-random, leaderLiveness) .
+red in CR-CHECK : modelCheck(init, beLeader) .
+red in CR-CHECK : modelCheck(init-random, beLeader) .
+red in CR-CHECK : modelCheck(init, candidateMsgCircleRing) .
+red in CR-CHECK : modelCheck(init-random, candidateMsgCircleRing) .
+red in CR-CHECK : modelCheck(init, coordinatorMsgCircleRing) .
+red in CR-CHECK : modelCheck(init-random, coordinatorMsgCircleRing) .
