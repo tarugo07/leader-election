@@ -101,30 +101,25 @@ endv
 fmod INIT-STATE is
   pr SOUP{OComp} .
   pr OCOM .
+  pr NAT .
   sort BState .
   op {_} : Soup{OComp} -> BState [ctor] .
-  op init : -> BState .
-  eq init = {
-    (proc[0]: normal) (proc[1]: normal) (proc[2]: normal) (proc[3]: normal) (proc[4]: leader)
-    (curLeader[0]: 4) (curLeader[1]: 4) (curLeader[2]: 4) (curLeader[3]: 4) (curLeader[4]: 4)
-    (sndElectionMsgCnt[0]: 0) (sndElectionMsgCnt[1]: 0) (sndElectionMsgCnt[2]: 0) (sndElectionMsgCnt[3]: 0) (sndElectionMsgCnt[4]: 0)
-    (rcvOkMsgCnt[0]: 0) (rcvOkMsgCnt[1]: 0) (rcvOkMsgCnt[2]: 0) (rcvOkMsgCnt[3]: 0) (rcvOkMsgCnt[4]: 0)
-    (rcvTimeoutMsgCnt[0]: 0) (rcvTimeoutMsgCnt[1]: 0) (rcvTimeoutMsgCnt[2]: 0) (rcvTimeoutMsgCnt[3]: 0) (rcvTimeoutMsgCnt[4]: 0)
-    (procIds: (0, 1, 2, 3, 4))
-    (network: empty)
-    (tran: notran)
-  } .
-  op init2 : -> BState .
-  eq init2 = {
-    (proc[0]: normal) (proc[1]: normal) (proc[2]: normal) (proc[3]: normal) (proc[4]: failedLeader)
-    (curLeader[0]: 4) (curLeader[1]: 4) (curLeader[2]: 4) (curLeader[3]: 4) (curLeader[4]: 4)
-    (sndElectionMsgCnt[0]: 0) (sndElectionMsgCnt[1]: 0) (sndElectionMsgCnt[2]: 0) (sndElectionMsgCnt[3]: 0) (sndElectionMsgCnt[4]: 0)
-    (rcvOkMsgCnt[0]: 0) (rcvOkMsgCnt[1]: 0) (rcvOkMsgCnt[2]: 0) (rcvOkMsgCnt[3]: 0) (rcvOkMsgCnt[4]: 0)
-    (rcvTimeoutMsgCnt[0]: 0) (rcvTimeoutMsgCnt[1]: 0) (rcvTimeoutMsgCnt[2]: 0) (rcvTimeoutMsgCnt[3]: 0) (rcvTimeoutMsgCnt[4]: 0)
-    (procIds: (0, 1, 2, 3, 4))
-    (network: empty)
-    (tran: notran)
-  } .
+  op node : Nat ProcState Nat -> Soup{OComp} .
+  ops init2 init3 init4 init5 init6 : -> BState .
+  vars N LN : Nat .
+  var PS : ProcState .
+  eq node(N,PS,LN) = (proc[N]: PS) (curLeader[N]: LN) (sndElectionMsgCnt[N]: 0) 
+                                         (rcvOkMsgCnt[N]: 0) (rcvTimeoutMsgCnt[N]: 0) .
+  eq init2 = {node(0,normal,1) node(1,leader,1) 
+                       (procIds: (0, 1)) (network: empty) (tran: notran)} .
+  eq init3 = {node(0,normal,2) node(1,normal,2) node(2,leader,2) 
+                       (procIds: (0, 1, 2)) (network: empty) (tran: notran)} .
+  eq init4 = {node(0,normal,3) node(1,normal,3) node(2,normal,3) node(3,leader,3) 
+                       (procIds: (0, 1, 2, 3)) (network: empty) (tran: notran)} .
+  eq init5 = {node(0,normal,4) node(1,normal,4) node(2,normal,4) node(3,normal,4) node(4,leader,4) 
+                       (procIds: (0, 1, 2, 3, 4)) (network: empty) (tran: notran)} .
+  eq init6 = {node(0,normal,5) node(1,normal,5) node(2,normal,5) node(3,normal,5) node(4,normal,5) node(5,leader,5) 
+                       (procIds: (0, 1, 2, 3, 4, 5)) (network: empty) (tran: notran)} .
 endfm
 
 mod BULLY is
@@ -138,6 +133,15 @@ mod BULLY is
   var NW : Soup{Message} .
   var E : LabeledEvent .
 
+  op syncCurLeader : Soup{OComp} Nat -> Soup{OComp} .
+  eq syncCurLeader(empty, ID) = empty .
+  eq syncCurLeader((proc[ID0]: initiator) (curLeader[ID0]: ID1) S, ID) =
+    (proc[ID0]: normal) (curLeader[ID0]: ID) syncCurLeader(S, ID) .
+  eq syncCurLeader((proc[ID0]: normal) (curLeader[ID0]: ID1) S, ID) =
+    (proc[ID0]: normal) (curLeader[ID0]: ID) syncCurLeader(S, ID) .
+  eq syncCurLeader(S0 S1, ID) = S0 syncCurLeader(S1, ID) [owise] .
+
+***(
   op syncCurLeader : Soup{OComp} Nat Set{Nat} -> Soup{OComp} .
   eq syncCurLeader(empty, ID, IDS) = empty .
   eq syncCurLeader(S, ID, empty) = S .
@@ -147,9 +151,15 @@ mod BULLY is
   eq syncCurLeader((proc[ID0]: initiator) S, ID, IDS) =
     (proc[ID0]: normal) syncCurLeader(S, ID, IDS) .
   eq syncCurLeader(S0 S1, ID, IDS) = S0 syncCurLeader(S1, ID, IDS) [owise] .
+)
 
+***(
   rl [become-failed-leader] :
     {(proc[ID]: leader) (network: empty) (tran: E) S} => {(proc[ID]: failedLeader) (network: empty) (tran: bfl(ID)) S} .
+)
+
+  rl [become-failed-leader] :
+    {(proc[ID]: leader) (tran: E) S} => {(proc[ID]: failedLeader) (tran: bfl(ID)) S} .
 
   rl [become-initiator] :
     {(proc[ID]: normal) (proc[LID]: failedLeader) (curLeader[ID]: LID) 
@@ -172,12 +182,14 @@ mod BULLY is
      (network: (sndOkMsg(ID0, ID1) NW)) (tran: nee(ID0)) S}
     if ID0 > ID1 .
 
+***(
   crl [normal-ignore-election] :
     {(proc[ID0]: normal) (curLeader[ID0]: LID) (proc[LID]: leader)
      (network: (message(ID1, ID0, election) NW)) (tran: E) S} =>
     {(proc[ID0]: normal) (curLeader[ID0]: LID) (proc[LID]: leader)
      (network: NW) (tran: nie(ID0)) S}
     if ID0 > ID1 .
+    )
 
   crl [election-timeout] :
     {(proc[ID0]: failedLeader) (network: (message(ID1, ID0, election) NW)) (tran: E) S} =>
@@ -202,17 +214,28 @@ mod BULLY is
   crl [initiator-become-normal] :
     {(proc[ID0]: initiator) (sndElectionMsgCnt[ID0]: SEC)
      (rcvOkMsgCnt[ID0]: ROC) (rcvTimeoutMsgCnt[ID0]: RTC) (tran: E) S} =>
-    {(proc[ID0]: normal) (sndElectionMsgCnt[ID0]: SEC)
-     (rcvOkMsgCnt[ID0]: ROC) (rcvTimeoutMsgCnt[ID0]: RTC) (tran: ibn(ID0)) S}
+    {(proc[ID0]: normal) (sndElectionMsgCnt[ID0]: 0)
+     (rcvOkMsgCnt[ID0]: 0) (rcvTimeoutMsgCnt[ID0]: 0) (tran: ibn(ID0)) S}
     if SEC > 0 and SEC == (ROC + RTC) and ROC > 0 .
 
+***(
   crl [initiator-become-leader] :
     {(proc[ID0]: initiator) (curLeader[ID0]: ID1)
      (sndElectionMsgCnt[ID0]: SEC) (rcvTimeoutMsgCnt[ID0]: RTC) (rcvOkMsgCnt[ID0]: ROC)
      (procIds: IDS) (tran: E) S} =>
     {(proc[ID0]: leader) (curLeader[ID0]: ID0)
+     (sndElectionMsgCnt[ID0]: 0) (rcvTimeoutMsgCnt[ID0]: 0) (rcvOkMsgCnt[ID0]: 0)
+     (procIds: IDS) (tran: ibl(ID0)) syncCurLeader(S, ID0)}
+    if SEC > 0 and SEC == RTC and ROC == 0 .
+    )
+
+  crl [initiator-become-leader] :
+    {(proc[ID0]: initiator) (curLeader[ID0]: ID1)
      (sndElectionMsgCnt[ID0]: SEC) (rcvTimeoutMsgCnt[ID0]: RTC) (rcvOkMsgCnt[ID0]: ROC)
-     (procIds: IDS) (tran: ibl(ID0)) syncCurLeader(S, ID0, smallerThanIds(ID0, IDS))}
+     (procIds: IDS) (network: empty) (tran: E) S} =>
+    {(proc[ID0]: leader) (curLeader[ID0]: ID0)
+     (sndElectionMsgCnt[ID0]: 0) (rcvTimeoutMsgCnt[ID0]: 0) (rcvOkMsgCnt[ID0]: 0)
+     (procIds: IDS) (network: empty) (tran: ibl(ID0)) syncCurLeader(S, ID0)}
     if SEC > 0 and SEC == RTC and ROC == 0 .
 endm
 
@@ -222,16 +245,24 @@ mod BULLY-PREDS is
   pr BULLY .
   inc SATISFACTION .
   subsort BState < State .
-  vars ID : Nat .
+
+  --- vars ID : Nat .
+  --- var E : LabeledEvent .
+  --- var S : Soup{OComp} .
+
+  vars S S0 S1 : Soup{OComp} .
+  vars ID LID ID0 ID1 : Nat .
+  vars SEC ROC RTC : Nat .
+  var IDS : Set{Nat} .
+  var NW : Soup{Message} .
   var E : LabeledEvent .
-  var S : Soup{OComp} .
+
   var PROP : Prop .
   op leader : Nat -> Prop .
-  op enabled : LabeledEvent -> Prop .
+  op initiator : Nat -> Prop .
   op applied : LabeledEvent -> Prop .
   eq {(proc[ID]: leader) S} |= leader(ID) = true .
-  eq {(tran: bi(ID)) S} |= enabled(ibl(ID)) = true .
-  eq {(tran: nee(ID)) S} |= enabled(ibl(ID)) = true .
+  eq {(proc[ID]: initiator) S} |= initiator(ID) = true .
   eq {(tran: E) S} |= applied(E) = true .
   eq {S} |= PROP = false [owise] .
 endm
@@ -240,15 +271,70 @@ mod BULLY-CHECK is
   inc BULLY-PREDS .
   inc MODEL-CHECKER .
   inc LTL-SIMPLIFIER .
-  var E : LabeledEvent .
-  op leaderLiveness : -> Formula .
-  op sf : LabeledEvent -> Formula .
-  op sfair : -> Formula .
-  eq leaderLiveness = <> (leader(0) \/ leader(1) \/ leader(2) \/ leader(3) \/ leader(4)) .
-  eq sf(E) = ([] <> enabled(E)) -> ([] <> applied(E)) .
-  eq sfair = sf(ibl(0)) /\ sf(ibl(1)) /\ sf(ibl(2)) /\ sf(ibl(3)) /\ sf(ibl(4)) .
+  op leaderLiveness3-2  : -> Formula .
+  ops leaderLiveness2 leaderLiveness3 leaderLiveness4 leaderLiveness5 leaderLiveness6 : -> Formula .
+  ops afair2 afair3 afair4 afair5 afair6 : -> Formula .
+  eq leaderLiveness2 = (initiator(0) \/ initiator(1)) |-> (leader(0) \/ leader(1)) .
+  eq afair2 = (~ [] <> applied(bi(0))) /\ (~ [] <> applied(bi(1))) .
+  eq leaderLiveness3 = (initiator(0) \/ initiator(1) \/ initiator(2))
+                                        |-> (leader(0) \/ leader(1) \/ leader(2)) .
+  eq leaderLiveness3-2 = (~ leader(0) /\ ~ leader(1) /\ ~ leader(2))
+                                        |-> (leader(0) \/ leader(1) \/ leader(2)) .
+  eq afair3 = (~ [] <> applied(bi(0))) /\ (~ [] <> applied(bi(1))) /\ (~ [] <> applied(bi(2))) .
+  eq leaderLiveness4 = (initiator(0) \/ initiator(1) \/ initiator(2) \/ initiator(3))
+                                        |-> (leader(0) \/ leader(1) \/ leader(2) \/ leader(3)) .
+  eq afair4 = (~ [] <> applied(bi(0))) /\ (~ [] <> applied(bi(1))) /\ (~ [] <> applied(bi(2))) /\ 
+                       (~ [] <> applied(bi(3))) .
+  eq leaderLiveness5 = (initiator(0) \/ initiator(1) \/ initiator(2) \/ initiator(3) \/ initiator(4))
+                                        |-> (leader(0) \/ leader(1) \/ leader(2) \/ leader(3) \/ leader(4)) .
+  eq afair5 = (~ [] <> applied(bi(0))) /\ (~ [] <> applied(bi(1))) /\ (~ [] <> applied(bi(2))) /\ 
+                       (~ [] <> applied(bi(3))) /\ (~ [] <> applied(bi(4))) .
+  eq leaderLiveness6 = (initiator(0) \/ initiator(1) \/ initiator(2) \/ initiator(3) \/ initiator(4) \/ initiator(5))
+                                        |-> (leader(0) \/ leader(1) \/ leader(2) \/ leader(3) \/ leader(4) \/ leader(5)) .
+  eq afair6 = (~ [] <> applied(bi(0))) /\ (~ [] <> applied(bi(1))) /\ (~ [] <> applied(bi(2))) /\ 
+                       (~ [] <> applied(bi(3))) /\ (~ [] <> applied(bi(4))) /\ (~ [] <> applied(bi(5))) .
 endm
 
-search [1] in BULLY : init =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+eof
 
-red in BULLY-CHECK : modelCheck(init2, sfair -> leaderLiveness) .
+search [1] in BULLY : init2 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init2, afair2 -> leaderLiveness2) .
+
+search [1] in BULLY : init3 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init3, afair3 -> leaderLiveness3) .
+
+--- red in BULLY-CHECK : modelCheck(init3, afair3 -> leaderLiveness3-2) .
+
+search [1] in BULLY : init4 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init4, afair4 -> leaderLiveness4) .
+
+search [1] in BULLY : init5 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init5, afair5 -> leaderLiveness5) .
+
+search [1] in BULLY : init6 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init6, afair6 -> leaderLiveness6) .
+
+
+eof
+
+search [1] in BULLY : init4 =>* {(network: (message(0,1,election) message(0,1,election) message(0,1,election) NW)) S} .
+
+
+search [1] in BULLY : init2 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init2, afair2 -> leaderLiveness2) .
+
+search [1] in BULLY : init3 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init3, afair3 -> leaderLiveness3) .
+
+red in BULLY-CHECK : modelCheck(init3, afair3 -> leaderLiveness3-2) .
+
+search [1] in BULLY : init4 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init4, afair4 -> leaderLiveness4) .
+
+search [1] in BULLY : init5 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init5, afair5 -> leaderLiveness5) .
+
+search [1] in BULLY : init6 =>* {(proc[ID0]: leader) (proc[ID1]: leader) S} .
+red in BULLY-CHECK : modelCheck(init6, afair6 -> leaderLiveness6) .
+
+
